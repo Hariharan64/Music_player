@@ -1,0 +1,811 @@
+Here’s how you can store punch-in data for multiple users in Firebase Realtime Database using Java and XML in Android Studio. This guide covers the complete setup, including creating the Firebase structure, adding authentication, storing data, and designing the UI.
+
+Step 1: Firebase Setup
+Add Firebase to Your Android Project:
+
+Go to the Firebase Console.
+Create a new project or use an existing one.
+Register your Android app, download the google-services.json file, and place it in the app/ directory of your project.
+Add Firebase SDK dependencies in your build.gradle files:
+Project-level build.gradle:
+
+gradle
+Copy code
+dependencies {
+    classpath 'com.google.gms:google-services:4.3.10'
+}
+App-level build.gradle:
+
+gradle
+Copy code
+dependencies {
+    implementation 'com.google.firebase:firebase-auth:22.0.0'
+    implementation 'com.google.firebase:firebase-database:20.0.4'
+}
+apply plugin: 'com.google.gms.google-services'
+Enable Firebase Authentication:
+
+In Firebase Console, go to Authentication > Sign-in method.
+Enable Email/Password authentication (or other methods as needed).
+Step 2: XML Layout
+Create a simple UI to display the punch-in and punch-out buttons.
+
+activity_attendance.xml:
+
+xml
+Copy code
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <GridView
+        android:id="@+id/gridViewCalendar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:numColumns="7"
+        android:verticalSpacing="10dp"
+        android:horizontalSpacing="10dp" />
+
+    <Button
+        android:id="@+id/punchInButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Punch In"
+        android:layout_marginTop="20dp" />
+
+    <Button
+        android:id="@+id/punchOutButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Punch Out"
+        android:layout_marginTop="10dp" />
+</LinearLayout>
+Step 3: Java Code
+Firebase Initialization and Authentication:
+Set up Firebase and authenticate the user.
+
+AttendanceActivity.java:
+
+java
+Copy code
+import android.os.Bundle;
+import android.view.View;
+import android.widget.Button;
+import android.widget.GridView;
+import android.widget.Toast;
+
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class AttendanceActivity extends AppCompatActivity {
+
+    private GridView gridViewCalendar;
+    private Button punchInButton, punchOutButton;
+    private DatabaseReference databaseReference;
+    private String selectedDate;
+    private String userId;
+
+    private static final String SHIFT_START_TIME = "09:00 AM";
+    private static final String SHIFT_END_TIME = "07:00 PM";
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_attendance);
+
+        // Initialize Firebase Auth
+        FirebaseAuth mAuth = FirebaseAuth.getInstance();
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+
+        // Get user ID from FirebaseAuth
+        if (currentUser != null) {
+            userId = currentUser.getUid();
+        } else {
+            // Handle case where user is not logged in
+            Toast.makeText(this, "User not logged in", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Initialize views
+        gridViewCalendar = findViewById(R.id.gridViewCalendar);
+        punchInButton = findViewById(R.id.punchInButton);
+        punchOutButton = findViewById(R.id.punchOutButton);
+
+        // Initialize Firebase reference
+        databaseReference = FirebaseDatabase.getInstance().getReference("Attendance").child(userId);
+
+        // Set button click listeners
+        punchInButton.setOnClickListener(v -> recordPunch(true));
+        punchOutButton.setOnClickListener(v -> recordPunch(false));
+    }
+
+    private void recordPunch(boolean isPunchIn) {
+        selectedDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+        String currentTime = new SimpleDateFormat("hh:mm a", Locale.getDefault()).format(new Date());
+
+        DatabaseReference dateRef = databaseReference.child(selectedDate);
+
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a", Locale.getDefault());
+            Date punchTime = sdf.parse(currentTime);
+            Date shiftStartTime = sdf.parse(SHIFT_START_TIME);
+            Date shiftEndTime = sdf.parse(SHIFT_END_TIME);
+            Date middayTime = sdf.parse("12:00 PM");
+
+            if (isPunchIn) {
+                dateRef.child("punchInTime").setValue(currentTime);
+
+                if (punchTime.before(shiftEndTime) && punchTime.after(shiftStartTime)) {
+                    dateRef.child("status").setValue("punch_in");
+                    dateRef.child("color").setValue("green");
+                    Toast.makeText(this, "Punch In Recorded", Toast.LENGTH_SHORT).show();
+                } else if (punchTime.after(middayTime)) {
+                    dateRef.child("status").setValue("late_punch_in");
+                    dateRef.child("color").setValue("orange");
+                    Toast.makeText(this, "Late Punch In Recorded", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                dateRef.child("punchOutTime").setValue(currentTime);
+                dateRef.child("status").setValue("punch_out");
+                dateRef.child("color").setValue("green");
+                calculateTotalTime(dateRef);
+                Toast.makeText(this, "Punch Out Recorded", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Error processing punch time", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void calculateTotalTime(DatabaseReference dateRef) {
+        dateRef.get().addOnCompleteListener(task -> {
+            if (task.isSuccessful()) {
+                String punchInTime = task.getResult().child("punchInTime").getValue(String.class);
+                String punchOutTime = task.getResult().child("punchOutTime").getValue(String.class);
+
+                if (punchInTime != null && punchOutTime != null) {
+                    try {
+                        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a", Locale.getDefault());
+                        Date inTime = sdf.parse(punchInTime);
+                        Date outTime = sdf.parse(punchOutTime);
+
+                        if (inTime != null && outTime != null) {
+                            long duration = outTime.getTime() - inTime.getTime();
+                            long durationInHours = duration / (1000 * 60 * 60);
+                            long durationInMinutes = (duration % (1000 * 60 * 60)) / (1000 * 60);
+
+                            String totalWorkingTime = durationInHours + " hours " + durationInMinutes + " minutes";
+                            dateRef.child("totalWorkingTime").setValue(totalWorkingTime);
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        Toast.makeText(this, "Error calculating total time", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(this, "Punch in or punch out time missing", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(this, "Error retrieving punch times", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+}
+Step 4: CalendarAdapter Implementation
+If you're using a CalendarAdapter to highlight the dates, you'll need to implement it to reflect the changes.
+
+CalendarAdapter.java (simplified):
+
+java
+Copy code
+import android.content.Context;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.TextView;
+
+import java.util.ArrayList;
+import java.util.Map;
+
+public class CalendarAdapter extends BaseAdapter {
+
+    private Context context;
+    private ArrayList<String> dates;
+    private Map<String, String> dateStatusMap;
+    private String selectedDate;
+
+    public CalendarAdapter(Context context, ArrayList<String> dates, Map<String, String> dateStatusMap) {
+        this.context = context;
+        this.dates = dates;
+        this.dateStatusMap = dateStatusMap;
+    }
+
+    @Override
+    public int getCount() {
+        return dates.size();
+    }
+
+    @Override
+    public Object getItem(int position) {
+        return dates.get(position);
+    }
+
+    @Override
+    public long getItemId(int position) {
+        return position;
+    }
+
+    @Override
+    public View getView(int position, View convertView, ViewGroup parent) {
+        TextView textView = new TextView(context);
+        String date = dates.get(position);
+        textView.setText(date);
+
+        if (dateStatusMap.containsKey(date)) {
+            String color = dateStatusMap.get(date);
+            textView.setBackgroundColor(android.graphics.Color.parseColor(color));
+        }
+
+        return textView;
+    }
+
+    public void setSelectedDate(String date) {
+        this.selectedDate = date;
+        notifyDataSetChanged();
+    }
+
+    public void setHighlightedDate(String date, String color) {
+        dateStatusMap.put(date, color);
+        notifyDataSetChanged();
+    }
+}
+Step 5: Firebase Database Structure
+Your Firebase Realtime Database should be structured like this:
+
+json
+Copy code
+{
+  "Attendance": {
+    "userID1": {
+      "2024-08-01": {
+        "punchInTime": "09:15 AM",
+        "punchOutTime": "06:45 PM",
+        "status": "punch_in",
+        "color": "green",
+        "totalWorkingTime": "9 hours 30 minutes"
+      },
+      // Other dates...
+    },
+    "userID2": {
+      // User 2 attendance data...
+    }
+  }
+}
+Step 6: Testing
+Run your app and log in with different user accounts.
+Punch in and out to see how data is stored in Firebase and how the UI updates.
+Step 7: Automatically Mark Absence
+You can set up a background service or a scheduled task to check at the end of each day whether a user has punched in. If not, mark the date in red and increase the leave count.
+
+This basic structure allows you to store and manage attendance data for multiple users in Firebase Realtime Database, with a UI to display and interact with the data.
+
+
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+To implement both punch-in and punch-out functionalities using QR code scanning, you need to modify your existing code to handle two separate QR codes or the same QR code for both actions. Below is a step-by-step implementation using ZXing for scanning QR codes.
+
+Step 1: Modify AttendanceActivity.java
+Here’s how you can implement the punch-in and punch-out functionality using QR codes.
+
+java
+Copy code
+package com.example.qrstaff;
+
+import android.content.Intent;
+import android.os.Bundle;
+import android.widget.Button;
+import android.widget.GridView;
+import android.widget.Toast;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
+public class AttendanceActivity extends AppCompatActivity {
+
+    private GridView gridViewCalendar;
+    private Button punchInButton, punchOutButton;
+    private DatabaseReference databaseReference;
+    private String selectedDate;
+    private String userId;
+
+    private static final String SHIFT_START_TIME = "09:00 AM";
+    private static final String SHIFT_END_TIME = "07:00 PM";
+    private boolean isPunchIn; // To determine if the scan is for punch-in or punch-out
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_attendance);
+
+        // Initialize Firebase Auth
+        FirebaseAuth mAuth = FirebaseAuth.getInstance();
+        FirebaseUser currentUser = mAuth.getCurrentUser();
+
+        // Get user ID from FirebaseAuth
+        if (currentUser != null) {
+            userId = currentUser.getUid();
+        } else {
+            // Handle case where user is not logged in
+            Toast.makeText(this, "User not logged in", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Initialize views
+        gridViewCalendar = findViewById(R.id.gridViewCalendar);
+        punchInButton = findViewById(R.id.punchInButton);
+        punchOutButton = findViewById(R.id.punchOutButton);
+
+        // Initialize Firebase reference
+        databaseReference = FirebaseDatabase.getInstance().getReference("Attendance").child(userId);
+
+        // Set button click listeners
+        punchInButton.setOnClickListener(v -> {
+            isPunchIn = true;
+            initiateQRScan();
+        });
+        punchOutButton.setOnClickListener(v -> {
+            isPunchIn = false;
+            initiateQRScan();
+        });
+    }
+
+    private void initiateQRScan() {
+        IntentIntegrator integrator = new IntentIntegrator(this);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.QR_CODE);
+        integrator.setPrompt("Scan QR Code");
+        integrator.setCameraId(0);  // Use a specific camera of the device
+        integrator.setBeepEnabled(true);
+        integrator.setBarcodeImageEnabled(true);
+        integrator.initiateScan();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        IntentResult result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
+        if (result != null) {
+            if (result.getContents() == null) {
+                Toast.makeText(this, "Cancelled", Toast.LENGTH_LONG).show();
+            } else {
+                handleQRResult(result.getContents());
+            }
+        } else {
+            super.onActivityResult(requestCode, resultCode, data);
+        }
+    }
+
+    private void handleQRResult(String qrCodeContent) {
+        // In this example, we'll assume the QR code contains valid information
+        // You might want to add additional validation and error handling
+
+        // If isPunchIn is true, handle punch-in, otherwise handle punch-out
+        recordPunch(isPunchIn);
+    }
+
+    private void recordPunch(boolean isPunchIn) {
+        selectedDate = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
+        String currentTime = new SimpleDateFormat("hh:mm a", Locale.getDefault()).format(new Date());
+
+        DatabaseReference dateRef = databaseReference.child(selectedDate);
+
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a", Locale.getDefault());
+            Date punchTime = sdf.parse(currentTime);
+            Date shiftStartTime = sdf.parse(SHIFT_START_TIME);
+            Date shiftEndTime = sdf.parse(SHIFT_END_TIME);
+            Date middayTime = sdf.parse("12:00 PM");
+
+            if (isPunchIn) {
+                dateRef.child("punchInTime").setValue(currentTime);
+
+                if (punchTime.before(shiftEndTime) && punchTime.after(shiftStartTime)) {
+                    dateRef.child("status").setValue("punch_in");
+                    dateRef.child("color").setValue("green");
+                    Toast.makeText(this, "Punch In Recorded", Toast.LENGTH_SHORT).show();
+                } else if (punchTime.after(middayTime)) {
+                    dateRef.child("status").setValue("late_punch_in");
+                    dateRef.child("color").setValue("orange");
+                    Toast.makeText(this, "Late Punch In Recorded", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                dateRef.child("punchOutTime").setValue(currentTime);
+                dateRef.child("status").setValue("punch_out");
+                dateRef.child("color").setValue("green");
+                calculateTotalTime(dateRef);
+                Toast.makeText(this, "Punch Out Recorded", Toast.LENGTH_SHORT).show();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Error processing punch time", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void calculateTotalTime(DatabaseReference dateRef) {
+        dateRef.get().addOnCompleteListener(task -> {
+            if (task.isSuccessful()) {
+                String punchInTime = task.getResult().child("punchInTime").getValue(String.class);
+                String punchOutTime = task.getResult().child("punchOutTime").getValue(String.class);
+
+                if (punchInTime != null && punchOutTime != null) {
+                    try {
+                        SimpleDateFormat sdf = new SimpleDateFormat("hh:mm a", Locale.getDefault());
+                        Date inTime = sdf.parse(punchInTime);
+                        Date outTime = sdf.parse(punchOutTime);
+
+                        if (inTime != null && outTime != null) {
+                            long duration = outTime.getTime() - inTime.getTime();
+                            long durationInHours = duration / (1000 * 60 * 60);
+                            long durationInMinutes = (duration % (1000 * 60 * 60)) / (1000 * 60);
+
+                            String totalWorkingTime = durationInHours + " hours " + durationInMinutes + " minutes";
+                            dateRef.child("totalWorkingTime").setValue(totalWorkingTime);
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        Toast.makeText(this, "Error calculating total time", Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(this, "Punch in or punch out time missing", Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(this, "Error retrieving punch times", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+}
+Step 2: Testing
+Run your application.
+Press the "Punch In" button to scan a QR code for punch-in.
+Press the "Punch Out" button to scan a QR code for punch-out.
+Ensure the correct punch times are recorded in Firebase.
+Step 3: Handle QR Code Content (Optional)
+If you want to use different QR codes for punch-in and punch-out, you can modify the handleQRResult method to check the content of the QR code. For example:
+
+java
+Copy code
+private void handleQRResult(String qrCodeContent) {
+    if (qrCodeContent.equals("PUNCH_IN_CODE")) {
+        recordPunch(true);
+    } else if (qrCodeContent.equals("PUNCH_OUT_CODE")) {
+        recordPunch(false);
+    } else {
+        Toast.makeText(this, "Invalid QR Code", Toast.LENGTH_SHORT).show();
+    }
+}
+XML Layout (activity_attendance.xml)
+Ensure your XML layout file has the necessary buttons:
+
+xml
+Copy code
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <GridView
+        android:id="@+id/gridViewCalendar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:numColumns="7" />
+
+    <Button
+        android:id="@+id/punchInButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Punch In" />
+
+    <Button
+        android:id="@+id/punchOutButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Punch Out" />
+</LinearLayout>
+This setup should give you a functional punch-in and punch-out system using QR code scanning in your Android app.
+
+
+++++++++++++++++++++++++++
+
+Memory updated
+To implement an Admin role-based user phone number authentication using OTP in Firebase in Android Studio (Java), follow these steps:
+
+1. Add Firebase Authentication to Your Project
+Open Firebase Console and select your project.
+Go to Authentication and enable Phone Authentication.
+Add your Android app to Firebase and download the google-services.json file.
+Place the google-services.json file in your app's /app directory.
+2. Add Firebase Dependencies
+Update your build.gradle files with the necessary Firebase dependencies:
+
+gradle
+Copy code
+// Project-level build.gradle
+buildscript {
+    dependencies {
+        // Add this line
+        classpath 'com.google.gms:google-services:4.3.10'
+    }
+}
+
+// App-level build.gradle
+apply plugin: 'com.google.gms.google-services'
+
+dependencies {
+    implementation 'com.google.firebase:firebase-auth:21.0.1'
+}
+3. Design the XML Layout
+Create a layout for phone number input and OTP verification. Here's an example:
+
+res/layout/activity_login.xml
+
+xml
+Copy code
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/phoneEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter Phone Number"
+        android:inputType="phone"/>
+
+    <Button
+        android:id="@+id/sendOtpButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Send OTP"/>
+
+    <EditText
+        android:id="@+id/otpEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Enter OTP"
+        android:inputType="number"/>
+
+    <Button
+        android:id="@+id/verifyOtpButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Verify OTP"/>
+
+</LinearLayout>
+4. Implement OTP Authentication Logic
+Create a new activity to handle OTP authentication.
+
+LoginActivity.java
+
+java
+Copy code
+package com.example.adminauth;
+
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.firebase.FirebaseException;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.PhoneAuthCredential;
+import com.google.firebase.auth.PhoneAuthOptions;
+import com.google.firebase.auth.PhoneAuthProvider;
+
+import java.util.concurrent.TimeUnit;
+
+public class LoginActivity extends AppCompatActivity {
+
+    private EditText phoneEditText, otpEditText;
+    private Button sendOtpButton, verifyOtpButton;
+    private FirebaseAuth mAuth;
+    private String verificationId;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_login);
+
+        phoneEditText = findViewById(R.id.phoneEditText);
+        otpEditText = findViewById(R.id.otpEditText);
+        sendOtpButton = findViewById(R.id.sendOtpButton);
+        verifyOtpButton = findViewById(R.id.verifyOtpButton);
+
+        mAuth = FirebaseAuth.getInstance();
+
+        sendOtpButton.setOnClickListener(v -> {
+            String phoneNumber = phoneEditText.getText().toString().trim();
+            if (TextUtils.isEmpty(phoneNumber)) {
+                Toast.makeText(LoginActivity.this, "Enter phone number", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            sendVerificationCode(phoneNumber);
+        });
+
+        verifyOtpButton.setOnClickListener(v -> {
+            String code = otpEditText.getText().toString().trim();
+            if (TextUtils.isEmpty(code)) {
+                Toast.makeText(LoginActivity.this, "Enter OTP", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            verifyCode(code);
+        });
+    }
+
+    private void sendVerificationCode(String phoneNumber) {
+        PhoneAuthOptions options =
+                PhoneAuthOptions.newBuilder(mAuth)
+                        .setPhoneNumber(phoneNumber)       // Phone number to verify
+                        .setTimeout(60L, TimeUnit.SECONDS) // Timeout and unit
+                        .setActivity(this)                 // Activity (for callback binding)
+                        .setCallbacks(mCallbacks)          // OnVerificationStateChangedCallbacks
+                        .build();
+        PhoneAuthProvider.verifyPhoneNumber(options);
+    }
+
+    private final PhoneAuthProvider.OnVerificationStateChangedCallbacks mCallbacks =
+            new PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+
+                @Override
+                public void onVerificationCompleted(@NonNull PhoneAuthCredential credential) {
+                    String code = credential.getSmsCode();
+                    if (code != null) {
+                        otpEditText.setText(code);
+                        verifyCode(code);
+                    }
+                }
+
+                @Override
+                public void onVerificationFailed(@NonNull FirebaseException e) {
+                    Toast.makeText(LoginActivity.this, e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+
+                @Override
+                public void onCodeSent(@NonNull String s, @NonNull PhoneAuthProvider.ForceResendingToken token) {
+                    super.onCodeSent(s, token);
+                    verificationId = s;
+                }
+            };
+
+    private void verifyCode(String code) {
+        PhoneAuthCredential credential = PhoneAuthProvider.getCredential(verificationId, code);
+        signInWithCredential(credential);
+    }
+
+    private void signInWithCredential(PhoneAuthCredential credential) {
+        mAuth.signInWithCredential(credential)
+                .addOnCompleteListener(this, task -> {
+                    if (task.isSuccessful()) {
+                        FirebaseUser user = mAuth.getCurrentUser();
+                        checkAdminRole(user);
+                    } else {
+                        Toast.makeText(LoginActivity.this, "Verification Failed", Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    private void checkAdminRole(FirebaseUser user) {
+        // Check if the user is an Admin, you can fetch user role from the database
+        // Example: Check a field in the Realtime Database or Firestore
+        DatabaseReference ref = FirebaseDatabase.getInstance().getReference("Users").child(user.getUid());
+
+        ref.addListenerForSingleValueEvent(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot snapshot) {
+                String role = snapshot.child("role").getValue(String.class);
+                if ("admin".equals(role)) {
+                    // Redirect to Admin Activity
+                    startActivity(new Intent(LoginActivity.this, AdminActivity.class));
+                    finish();
+                } else {
+                    // Handle non-admin users
+                    Toast.makeText(LoginActivity.this, "Access Denied", Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onCancelled(@NonNull DatabaseError error) {
+                Toast.makeText(LoginActivity.this, "Error fetching user data", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+}
+5. Create an Admin Activity
+Create an activity that only admins can access.
+
+AdminActivity.java
+
+java
+Copy code
+package com.example.adminauth;
+
+import android.os.Bundle;
+import androidx.appcompat.app.AppCompatActivity;
+
+public class AdminActivity extends AppCompatActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_admin);
+
+        // Admin-specific functionality here
+    }
+}
+res/layout/activity_admin.xml
+
+xml
+Copy code
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Welcome, Admin!"
+        android:textSize="24sp"/>
+    <!-- Admin-specific views here -->
+
+</LinearLayout>
+6. Setup User Role in Firebase Database
+When a new user registers, make sure to set their role in the database. Example:
+
+Firebase Database Structure
+
+arduino
+Copy code
+Users
+    uid
+        phoneNumber: "+1234567890"
+        role: "admin" // or "user"
+This setup will allow you to authenticate users via OTP and restrict access to certain features based on their role.
+
+
+
+
+
+

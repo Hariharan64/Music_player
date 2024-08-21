@@ -1,0 +1,208 @@
+Admin user details add 
+___________________________
+To store employee details under specific user IDs (e.g., user1, user2) in Firebase Realtime Database in an Android Studio Java project, follow these steps:
+
+1. Set Up Firebase in Your Android Project
+Connect to Firebase:
+
+Open Android Studio.
+Go to Tools > Firebase.
+In the Firebase Assistant, click on Realtime Database > Save and retrieve data.
+Click Connect to Firebase and follow the steps to add your app to Firebase.
+Add Firebase Realtime Database Dependencies:
+
+Add the Firebase Realtime Database dependency in your build.gradle (Module: app) file:
+gradle
+Copy code
+dependencies {
+    implementation 'com.google.firebase:firebase-database:20.0.5'
+    implementation 'com.google.firebase:firebase-auth:22.1.0'
+}
+Sync your project after adding the dependencies.
+2. Design the XML Layout
+Create an XML layout file to input employee details.
+
+xml
+Copy code
+<!-- res/layout/activity_add_employee.xml -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/etEmployeeName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Employee Name" />
+
+    <EditText
+        android:id="@+id/etEmployeeCode"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Employee Code" />
+
+    <EditText
+        android:id="@+id/etEmployeeId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Employee ID" />
+
+    <EditText
+        android:id="@+id/etEmployeePhone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Employee Phone Number"
+        android:inputType="phone" />
+
+    <Button
+        android:id="@+id/btnAddEmployeeUser1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Add Employee to User 1" />
+
+    <Button
+        android:id="@+id/btnAddEmployeeUser2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Add Employee to User 2" />
+</LinearLayout>
+3. Create the Employee Model Class
+Create a Java class that represents an Employee object.
+
+java
+Copy code
+// Employee.java
+public class Employee {
+    private String employeeName;
+    private String employeeCode;
+    private String employeeId;
+    private String employeePhone;
+
+    public Employee() {
+        // Default constructor required for calls to DataSnapshot.getValue(Employee.class)
+    }
+
+    public Employee(String employeeName, String employeeCode, String employeeId, String employeePhone) {
+        this.employeeName = employeeName;
+        this.employeeCode = employeeCode;
+        this.employeeId = employeeId;
+        this.employeePhone = employeePhone;
+    }
+
+    // Getters and setters
+    public String getEmployeeName() { return employeeName; }
+    public void setEmployeeName(String employeeName) { this.employeeName = employeeName; }
+
+    public String getEmployeeCode() { return employeeCode; }
+    public void setEmployeeCode(String employeeCode) { this.employeeCode = employeeCode; }
+
+    public String getEmployeeId() { return employeeId; }
+    public void setEmployeeId(String employeeId) { this.employeeId = employeeId; }
+
+    public String getEmployeePhone() { return employeePhone; }
+    public void setEmployeePhone(String employeePhone) { this.employeePhone = employeePhone; }
+}
+4. Add Employee Details to Firebase under Specific Users
+In your activity (e.g., AddEmployeeActivity), get the data from the UI and store it under user1 and user2 in Firebase.
+
+java
+Copy code
+// AddEmployeeActivity.java
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.Toast;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+import com.google.firebase.database.DatabaseReference;
+import com.google.firebase.database.FirebaseDatabase;
+
+public class AddEmployeeActivity extends AppCompatActivity {
+
+    private EditText etEmployeeName, etEmployeeCode, etEmployeeId, etEmployeePhone;
+    private Button btnAddEmployeeUser1, btnAddEmployeeUser2;
+
+    private DatabaseReference databaseUsers;
+
+    @Override
+    protected void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_add_employee);
+
+        // Initialize Firebase Database reference
+        databaseUsers = FirebaseDatabase.getInstance().getReference("users");
+
+        // Initialize UI elements
+        etEmployeeName = findViewById(R.id.etEmployeeName);
+        etEmployeeCode = findViewById(R.id.etEmployeeCode);
+        etEmployeeId = findViewById(R.id.etEmployeeId);
+        etEmployeePhone = findViewById(R.id.etEmployeePhone);
+        btnAddEmployeeUser1 = findViewById(R.id.btnAddEmployeeUser1);
+        btnAddEmployeeUser2 = findViewById(R.id.btnAddEmployeeUser2);
+
+        btnAddEmployeeUser1.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                addEmployeeToUser("user1");
+            }
+        });
+
+        btnAddEmployeeUser2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                addEmployeeToUser("user2");
+            }
+        });
+    }
+
+    private void addEmployeeToUser(String userId) {
+        String name = etEmployeeName.getText().toString().trim();
+        String code = etEmployeeCode.getText().toString().trim();
+        String id = etEmployeeId.getText().toString().trim();
+        String phone = etEmployeePhone.getText().toString().trim();
+
+        if (!TextUtils.isEmpty(name) && !TextUtils.isEmpty(code) && !TextUtils.isEmpty(id) && !TextUtils.isEmpty(phone)) {
+            Employee employee = new Employee(name, code, id, phone);
+            databaseUsers.child(userId).push().setValue(employee);
+
+            Toast.makeText(this, "Employee added to " + userId, Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "Please fill all fields", Toast.LENGTH_SHORT).show();
+        }
+    }
+}
+5. Run the Application
+After implementing the above code, run your application.
+Input the employee details and click the appropriate button to add the employee under user1 or user2.
+6. Check Firebase Realtime Database
+Go to your Firebase Console, navigate to Realtime Database, and verify that the employee details are correctly stored under user1 and user2.
+Firebase Database Structure Example:
+json
+Copy code
+{
+  "users": {
+    "user1": {
+      "-Mx123456789": {
+        "employeeName": "John Doe",
+        "employeeCode": "E001",
+        "employeeId": "12345",
+        "employeePhone": "1234567890"
+      }
+    },
+    "user2": {
+      "-Mx123456790": {
+        "employeeName": "Jane Smith",
+        "employeeCode": "E002",
+        "employeeId": "67890",
+        "employeePhone": "0987654321"
+      }
+    }
+  }
+}
+This should help you store employee data under different users in Firebase Realtime Database using Android Studio Java. Let me know if you have any questions!
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+______________________________________________________________
